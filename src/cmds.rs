@@ -210,6 +210,11 @@ async fn bet(ctx: PoiseContext<'_>, #[description = "The game you want to set th
     let game_tag = game.split("'").collect::<Vec<_>>().get(1).ok_or("Game could not be parsed!")?.to_string();
     let real_game = d.games.iter().find(|e| e.short == game_tag).ok_or("Game does not exist!")?.clone();
 
+    if real_game.start_time <= chrono::Local::now() {
+        ctx.reply("Der Tipp für dieses Spiel kann nicht mehr verändert werden!").await?;
+        return Ok(());
+    }
+
     let bets = d.bets.entry(real_game.short.clone()).or_insert(Vec::new());
 
     if let Some(bet) = bets.iter_mut().find(|b| b.user == user) {

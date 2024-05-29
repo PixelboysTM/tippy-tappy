@@ -15,7 +15,8 @@ pub fn get_cmds() -> Vec<Command<Data, Error>> {
         add_game(),
         list_games(),
         add_score(),
-        bet()
+        bet(),
+        get_bets()
     ]
 }
 
@@ -225,5 +226,29 @@ async fn bet(ctx: PoiseContext<'_>, #[description = "The game you want to set th
     }
 
     ctx.reply(format!("Bet saved: {} {} vs {}  {}:{}", real_game.name, real_game.team1_iso, real_game.team2_iso, team1_score, team2_score)).await?;
+    Ok(())
+}
+
+#[poise::command(slash_command, required_permissions = "SEND_MESSAGES")]
+async fn get_bets(ctx: PoiseContext<'_>) -> Result<(), Error> {
+    ctx.defer_ephemeral().await?;
+
+    let d = ctx.data().lock().await;
+    let user = ctx.author().id;
+    let bets = d.bets.iter().filter_map(|(k,v)| {
+        v.iter().find(|b| b.user == user).map(|b| (k.clone(), b.clone()))
+    }).collect::<Vec<_>>();
+
+    let r = ctx.send(
+        CreateReply::default().reply(true).embed(
+            CreateEmbed::new().fields(
+                bets.iter().map(|(short, b)| {
+                    let g = d.games.iter().find(|g| &g.short == short).unwrap();
+                    (format!("{}", g.name), format!("({}) {} : {} ({})", g.team1_iso, b.team1, b.team2, g.team2_iso ), true)
+                })
+            ).author(CreateEmbedAuthor::new("Tippy Tappy")).title("Bets").description("All your bets").color(Colour::DARK_ORANGE)
+        ).ephemeral(true)
+    ).await;
+
     Ok(())
 }

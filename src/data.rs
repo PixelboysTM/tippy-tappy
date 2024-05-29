@@ -33,7 +33,7 @@ pub struct DataInter {
     pub bets: HashMap<String, Vec<Bet>>
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Bet {
     pub user: UserId,
     pub team1: u16,

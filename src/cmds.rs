@@ -1,14 +1,13 @@
-use chrono::DateTime;
-use poise::{Command, CreateReply};
 use poise::futures_util::StreamExt;
-use serenity::all::{Colour, CreateEmbed, CreateEmbedAuthor, User};
+use poise::{Command, CreateReply};
+use serenity::all::{Channel, Colour, CreateEmbed, CreateEmbedAuthor, CreateMessage, User};
 use serenity::futures::Stream;
 
-use crate::{Error, PoiseContext};
 use crate::data::{Bet, Data, Game, Team};
+use crate::{Error, PoiseContext};
 
 pub fn get_cmds() -> Vec<Command<Data, Error>> {
-     vec![
+    vec![
         age(),
         get_teams(),
         add_team(),
@@ -16,7 +15,8 @@ pub fn get_cmds() -> Vec<Command<Data, Error>> {
         list_games(),
         add_score(),
         bet(),
-        get_bets()
+        get_bets(),
+        print_overview(),
     ]
 }
 
@@ -35,21 +35,24 @@ async fn age(
 async fn get_teams(ctx: PoiseContext<'_>) -> Result<(), Error> {
     let r = ctx
         .send(
-            CreateReply::default().reply(true).embed(
-                CreateEmbed::new()
-                    .fields(
-                        ctx.data()
-                            .lock()
-                            .await
-                            .teams
-                            .iter()
-                            .map(|t| (format!("{} ({}) {}", t.name, t.iso, t.flag), "", false)),
-                    )
-                    .description("All available countries")
-                    .title("Country List")
-                    .color(Colour::DARK_ORANGE)
-                    .author(CreateEmbedAuthor::new("Tippy Tappy")),
-            ).ephemeral(true),
+            CreateReply::default()
+                .reply(true)
+                .embed(
+                    CreateEmbed::new()
+                        .fields(
+                            ctx.data()
+                                .lock()
+                                .await
+                                .teams
+                                .iter()
+                                .map(|t| (format!("{} ({}) {}", t.name, t.iso, t.flag), "", false)),
+                        )
+                        .description("All available countries")
+                        .title("Country List")
+                        .color(Colour::DARK_ORANGE)
+                        .author(CreateEmbedAuthor::new("Tippy Tappy")),
+                )
+                .ephemeral(true),
         )
         .await;
 
@@ -119,41 +122,44 @@ async fn list_games(ctx: PoiseContext<'_>) -> Result<(), Error> {
     ctx.defer_ephemeral().await?;
     let r = ctx
         .send(
-            CreateReply::default().reply(true).embed(
-                CreateEmbed::new()
-                    .fields(ctx.data().lock().await.games.iter().map(|g| {
-                        (
-                            format!(
-                                "{} ({}) {}",
-                                g.name,
-                                g.short,
-                                g.start_time.format("%d/%m/%Y %H:%M")
-                            ),
-                            format!(
-                                "{} vs. {} | {}:{} {}",
-                                g.team1_iso,
-                                g.team2_iso,
-                                g.result
-                                    .as_ref()
-                                    .map(|r| r.0.to_string())
-                                    .unwrap_or("-".to_string()),
-                                g.result
-                                    .as_ref()
-                                    .map(|r| r.1.to_string())
-                                    .unwrap_or("-".to_string()),
-                                g.result
-                                    .as_ref()
-                                    .map(|r| r.2.clone())
-                                    .unwrap_or("".to_string()),
-                            ),
-                            false,
-                        )
-                    }))
-                    .description("All available games")
-                    .title("Game List")
-                    .color(Colour::DARK_ORANGE)
-                    .author(CreateEmbedAuthor::new("Tippy Tappy")),
-            ).ephemeral(true),
+            CreateReply::default()
+                .reply(true)
+                .embed(
+                    CreateEmbed::new()
+                        .fields(ctx.data().lock().await.games.iter().map(|g| {
+                            (
+                                format!(
+                                    "{} ({}) {}",
+                                    g.name,
+                                    g.short,
+                                    g.start_time.format("%d/%m/%Y %H:%M")
+                                ),
+                                format!(
+                                    "{} vs. {} | {}:{} {}",
+                                    g.team1_iso,
+                                    g.team2_iso,
+                                    g.result
+                                        .as_ref()
+                                        .map(|r| r.0.to_string())
+                                        .unwrap_or("-".to_string()),
+                                    g.result
+                                        .as_ref()
+                                        .map(|r| r.1.to_string())
+                                        .unwrap_or("-".to_string()),
+                                    g.result
+                                        .as_ref()
+                                        .map(|r| r.2.clone())
+                                        .unwrap_or("".to_string()),
+                                ),
+                                false,
+                            )
+                        }))
+                        .description("All available games")
+                        .title("Game List")
+                        .color(Colour::DARK_ORANGE)
+                        .author(CreateEmbedAuthor::new("Tippy Tappy")),
+                )
+                .ephemeral(true),
         )
         .await;
 
@@ -188,27 +194,60 @@ async fn add_score(
     Ok(())
 }
 
-
-
-async fn game_autocomplete<'a>(ctx: PoiseContext<'_>, partial: &'a str) -> impl Stream<Item = String> + 'a {
+async fn game_autocomplete<'a>(
+    ctx: PoiseContext<'_>,
+    partial: &'a str,
+) -> impl Stream<Item = String> + 'a {
     let d = ctx.data.lock().await;
     let gs = d.games.clone();
-    serenity::futures::stream::iter(gs).filter(move |n: &Game| serenity::futures::future::ready(n.short.starts_with(partial) && n.start_time > chrono::Local::now().naive_local())).map(|g| format!("{} {} vs {} '{}'", g.name, g.team1_iso, g.team2_iso, g.short))
+    serenity::futures::stream::iter(gs)
+        .filter(move |n: &Game| {
+            serenity::futures::future::ready(
+                n.short.starts_with(partial) && n.start_time > chrono::Local::now().naive_local(),
+            )
+        })
+        .map(|g| {
+            format!(
+                "{} {} vs {} '{}'",
+                g.name, g.team1_iso, g.team2_iso, g.short
+            )
+        })
 }
 
 #[poise::command(slash_command, required_permissions = "SEND_MESSAGES")]
-async fn bet(ctx: PoiseContext<'_>, #[description = "The game you want to set the bet for"] #[autocomplete = "game_autocomplete"] game: String, #[description = "Anzahl Tore Team 1"] #[min = 0] team1_score: u16, #[description = "Anzahl Tore Team 2"] #[min = 0] team2_score: u16) -> Result<(), Error> {
+async fn bet(
+    ctx: PoiseContext<'_>,
+    #[description = "The game you want to set the bet for"]
+    #[autocomplete = "game_autocomplete"]
+    game: String,
+    #[description = "Anzahl Tore Team 1"]
+    #[min = 0]
+    team1_score: u16,
+    #[description = "Anzahl Tore Team 2"]
+    #[min = 0]
+    team2_score: u16,
+) -> Result<(), Error> {
     ctx.defer_ephemeral().await?;
     let mut d = ctx.data().lock().await;
 
     let user = ctx.author().id;
 
-
-    let game_tag = game.split("'").collect::<Vec<_>>().get(1).ok_or("Game could not be parsed!")?.to_string();
-    let real_game = d.games.iter().find(|e| e.short == game_tag).ok_or("Game does not exist!")?.clone();
+    let game_tag = game
+        .split("'")
+        .collect::<Vec<_>>()
+        .get(1)
+        .ok_or("Game could not be parsed!")?
+        .to_string();
+    let real_game = d
+        .games
+        .iter()
+        .find(|e| e.short == game_tag)
+        .ok_or("Game does not exist!")?
+        .clone();
 
     if real_game.start_time <= chrono::Local::now().naive_local() {
-        ctx.reply("Der Tipp für dieses Spiel kann nicht mehr verändert werden!").await?;
+        ctx.reply("Der Tipp für dieses Spiel kann nicht mehr verändert werden!")
+            .await?;
         return Ok(());
     }
 
@@ -221,11 +260,15 @@ async fn bet(ctx: PoiseContext<'_>, #[description = "The game you want to set th
         bets.push(Bet {
             user,
             team1: team1_score,
-            team2: team2_score
+            team2: team2_score,
         });
     }
 
-    ctx.reply(format!("Bet saved: {} {} vs {}  {}:{}", real_game.name, real_game.team1_iso, real_game.team2_iso, team1_score, team2_score)).await?;
+    ctx.reply(format!(
+        "Bet saved: {} {} vs {}  {}:{}",
+        real_game.name, real_game.team1_iso, real_game.team2_iso, team1_score, team2_score
+    ))
+    .await?;
     Ok(())
 }
 
@@ -235,20 +278,55 @@ async fn get_bets(ctx: PoiseContext<'_>) -> Result<(), Error> {
 
     let d = ctx.data().lock().await;
     let user = ctx.author().id;
-    let bets = d.bets.iter().filter_map(|(k,v)| {
-        v.iter().find(|b| b.user == user).map(|b| (k.clone(), b.clone()))
-    }).collect::<Vec<_>>();
+    let bets = d
+        .bets
+        .iter()
+        .filter_map(|(k, v)| {
+            v.iter()
+                .find(|b| b.user == user)
+                .map(|b| (k.clone(), b.clone()))
+        })
+        .collect::<Vec<_>>();
 
-    let r = ctx.send(
-        CreateReply::default().reply(true).embed(
-            CreateEmbed::new().fields(
-                bets.iter().map(|(short, b)| {
-                    let g = d.games.iter().find(|g| &g.short == short).unwrap();
-                    (format!("{}", g.name), format!("({}) {} : {} ({})", g.team1_iso, b.team1, b.team2, g.team2_iso ), true)
-                })
-            ).author(CreateEmbedAuthor::new("Tippy Tappy")).title("Bets").description("All your bets").color(Colour::DARK_ORANGE)
-        ).ephemeral(true)
-    ).await;
+    let r = ctx
+        .send(
+            CreateReply::default()
+                .reply(true)
+                .embed(
+                    CreateEmbed::new()
+                        .fields(bets.iter().map(|(short, b)| {
+                            let g = d.games.iter().find(|g| &g.short == short).unwrap();
+                            (
+                                format!("{}", g.name),
+                                format!(
+                                    "({}) {} : {} ({})",
+                                    g.team1_iso, b.team1, b.team2, g.team2_iso
+                                ),
+                                true,
+                            )
+                        }))
+                        .author(CreateEmbedAuthor::new("Tippy Tappy"))
+                        .title("Bets")
+                        .description("All your bets")
+                        .color(Colour::DARK_ORANGE),
+                )
+                .ephemeral(true),
+        )
+        .await;
+
+    Ok(())
+}
+
+#[poise::command(slash_command, required_permissions = "ADMINISTRATOR")]
+async fn print_overview(ctx: PoiseContext<'_>, channel: Option<Channel>) -> Result<(), Error> {
+    ctx.defer_ephemeral().await?;
+
+    let channel = channel.map(|c| c.id()).unwrap_or_else(|| ctx.channel_id());
+
+    channel
+        .send_message(&ctx, CreateMessage::new().content("Hello World!"))
+        .await?;
+    ctx.reply("Send Msg to channel").await?;
 
     Ok(())
 }

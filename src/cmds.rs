@@ -1,12 +1,11 @@
 use chrono::DateTime;
 use poise::{Command, CreateReply};
-use poise::futures_util::stream::iter;
-use poise::serenity_prelude::futures;
+use poise::futures_util::StreamExt;
 use serenity::all::{Colour, CreateEmbed, CreateEmbedAuthor, User};
 use serenity::futures::Stream;
+
 use crate::{Error, PoiseContext};
 use crate::data::{Bet, Data, Game, Team};
-use poise::futures_util::StreamExt;
 
 pub fn get_cmds() -> Vec<Command<Data, Error>> {
      vec![
@@ -106,10 +105,7 @@ async fn add_game(
         team1_iso: team1,
         team2_iso: team2,
         result: None,
-        start_time: DateTime::from_naive_utc_and_offset(
-            t,
-            chrono::offset::FixedOffset::west_opt(0 * 3600).unwrap(),
-        ),
+        start_time: t,
     });
 
     ctx.reply("Succesful").await.unwrap();
@@ -196,7 +192,7 @@ async fn add_score(
 async fn game_autocomplete<'a>(ctx: PoiseContext<'_>, partial: &'a str) -> impl Stream<Item = String> + 'a {
     let d = ctx.data.lock().await;
     let gs = d.games.clone();
-    serenity::futures::stream::iter(gs).filter(move |n: &Game| serenity::futures::future::ready(n.short.starts_with(partial) && n.start_time > chrono::Local::now())).map(|g| format!("{} {} vs {} '{}'", g.name, g.team1_iso, g.team2_iso, g.short))
+    serenity::futures::stream::iter(gs).filter(move |n: &Game| serenity::futures::future::ready(n.short.starts_with(partial) && n.start_time > chrono::Local::now().naive_local())).map(|g| format!("{} {} vs {} '{}'", g.name, g.team1_iso, g.team2_iso, g.short))
 }
 
 #[poise::command(slash_command, required_permissions = "SEND_MESSAGES")]
@@ -210,7 +206,7 @@ async fn bet(ctx: PoiseContext<'_>, #[description = "The game you want to set th
     let game_tag = game.split("'").collect::<Vec<_>>().get(1).ok_or("Game could not be parsed!")?.to_string();
     let real_game = d.games.iter().find(|e| e.short == game_tag).ok_or("Game does not exist!")?.clone();
 
-    if real_game.start_time <= chrono::Local::now() {
+    if real_game.start_time <= chrono::Local::now().naive_local() {
         ctx.reply("Der Tipp für dieses Spiel kann nicht mehr verändert werden!").await?;
         return Ok(());
     }

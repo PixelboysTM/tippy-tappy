@@ -1524,6 +1524,8 @@ dependencies = [
  "chrono",
  "dotenv",
  "poise",
+ "serde",
+ "serde_json",
  "serenity",
  "tokio",
 ]

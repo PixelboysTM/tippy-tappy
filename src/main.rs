@@ -1,20 +1,18 @@
-use chrono::{DateTime, Utc};
-use poise::CreateReply;
-use serenity::all::{ActivityData, Colour, CreateEmbed, CreateEmbedAuthor, CreateSelectMenu, CreateSelectMenuKind, Message, Ready, User};
-use serenity::async_trait;
-use serenity::builder::{CreateMessage, CreateSelectMenuOption};
-use serenity::futures::lock::{Mutex, MutexGuard};
-use serenity::prelude::*;
 use std::env;
 use std::ops::{Deref, DerefMut};
-use std::sync::Arc;
-use std::time::Duration;
+
+use serenity::all::{
+    ActivityData
+    , Ready,
+};
+use serenity::async_trait;
+use serenity::prelude::*;
+
 use crate::cmds::get_cmds;
-use crate::data::{Data, Game, Team};
+use crate::data::Data;
 
-mod data;
 mod cmds;
-
+mod data;
 
 type Error = Box<dyn std::error::Error + Send + Sync>;
 type PoiseContext<'a> = poise::ApplicationContext<'a, Data, Error>;

@@ -19,6 +19,10 @@ type PoiseContext<'a> = poise::ApplicationContext<'a, Data, Error>;
 
 struct Handler;
 
+pub const POINTS_CORRECT: u32 = 3;
+pub const POINTS_TENDENZ: u32 = 2;
+pub const POINTS_TEAM: u32 = 1;
+
 #[async_trait]
 impl EventHandler for Handler {
     async fn ready(&self, ctx: Context, data_about_bot: Ready) {

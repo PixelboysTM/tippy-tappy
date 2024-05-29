@@ -13,3 +13,5 @@ poise = "0.6.1"
 chrono = { version = "*" }
 serde = "1.0.203"
 serde_json = "1.0.117"
+ascii_table = { version = "4.0.3", features = ["wide_characters"] }
+itertools = "0.13.0"

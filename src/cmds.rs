@@ -1,10 +1,14 @@
+use std::collections::HashMap;
+use std::fmt::Display;
+use ascii_table::{Align, AsciiTable};
+use itertools::Itertools;
 use poise::futures_util::StreamExt;
 use poise::{Command, CreateReply};
 use serenity::all::{Channel, Colour, CreateEmbed, CreateEmbedAuthor, CreateMessage, User};
 use serenity::futures::Stream;
 
 use crate::data::{Bet, Data, Game, Team};
-use crate::{Error, PoiseContext};
+use crate::{Error, POINTS_CORRECT, POINTS_TEAM, POINTS_TENDENZ, PoiseContext};
 
 pub fn get_cmds() -> Vec<Command<Data, Error>> {
     vec![
@@ -323,10 +327,138 @@ async fn print_overview(ctx: PoiseContext<'_>, channel: Option<Channel>) -> Resu
 
     let channel = channel.map(|c| c.id()).unwrap_or_else(|| ctx.channel_id());
 
+    let d = ctx.data().lock().await;
+
+    let mut user_bets = HashMap::new();
+    for (game_short, bets) in d.bets.iter() {
+        let g = d.games.iter().find(|g| &g.short == game_short).unwrap();
+        let result = if let Some(r) = g.result.as_ref() {
+            r
+        } else {
+            for bet in bets {
+                user_bets.entry(bet.user).or_insert(0u32);
+            }
+
+            continue;
+        };
+
+        for bet in bets {
+            let points = if bet.team1 == result.0 && bet.team2 == result.1 {
+                POINTS_CORRECT
+            } else if (bet.team1 as i16 - bet.team2 as i16) == (result.0 as i16 - result.1 as i16) {
+                POINTS_TENDENZ
+            } else if (bet.team1 > bet.team2 && result.0 > result.1) || (bet.team1 < bet.team2 && result.0 < result.1) {
+                POINTS_TEAM
+            } else { 0 };
+
+            let mut ps = user_bets.entry(bet.user).or_insert(0u32);
+            *ps +=  points;
+        }
+    }
+
+    let mut points_table = AsciiTable::default();
+    // points_table.set_max_width(70);
+    points_table.column(0).set_header("Username");
+    points_table.column(1).set_header("Points");
+
+    let mut points_table_data: Vec<Vec<String>> = Vec::new();
+    for (k, v) in user_bets {
+        let name = k.to_user(ctx.http()).await.map(|u| u.name.clone()).unwrap_or("UNKNOWN".to_string());
+        points_table_data.push(vec![name, v.to_string()]);
+    }
+
+    let points_table_string = points_table.format(points_table_data);
+
+
     channel
-        .send_message(&ctx, CreateMessage::new().content("Hello World!"))
+        .send_message(&ctx, CreateMessage::new().content(format!("# Übersicht\n```\n{points_table_string}\n```")))
         .await?;
+
+    let mut games_table = AsciiTable::default();
+    // games_table.set_max_width(70);
+    games_table.column(0).set_header("Spiel");
+    games_table.column(1).set_header("Kontrahent 1");
+    games_table.column(2).set_header("vs");
+    games_table.column(3).set_header("Kontrahent 2");
+    games_table.column(4).set_header("Anpfiff");
+    games_table.column(5).set_header("Ergebnis");
+
+    let mut games = d.games.iter().cloned().collect::<Vec<_>>();
+
+    games.sort_by(|g1,g2| g1.start_time.cmp(&g2.start_time));
+
+    let mut games_table_data: Vec<Vec<String>> = Vec::new();
+    for game in games {
+        let t1 = d.teams.iter().find(|t| t.iso == game.team1_iso).unwrap();
+        let t2 = d.teams.iter().find(|t| t.iso == game.team2_iso).unwrap();
+        let r = game.result.map(|r| format!("{}:{} {}", r.0, r.1, r.2)).unwrap_or("-:-".to_string());
+        games_table_data.push(vec![
+           game.name,
+           t1.name.clone(),
+           "vs".to_string(),
+           t2.name.clone(),
+           game.start_time.format("%d.%m.%Y %H:%M Uhr").to_string(),
+           r
+        ]);
+    }
+
+    let games_table_string = games_table.format(games_table_data);
+    channel
+        .send_message(&ctx, CreateMessage::new().content(format!("# Spiele\n```\n{games_table_string}\n```")))
+        .await?;
+
+    let mut games = d.games.iter().filter(|g| g.start_time <= chrono::Local::now().naive_local() ).cloned().collect::<Vec<_>>();
+
+    games.sort_by(|g1,g2| g1.start_time.cmp(&g2.start_time));
+
+    let users = d.bets.iter().map(|(k,v)| v.iter().map(|b| b.user).collect::<Vec<_>>()).flatten().unique().collect::<Vec<_>>();
+
+    let mut tipps_table = AsciiTable::default();
+    tipps_table.column(0).set_header("Spieler\\Game");
+    for (i, g) in games.iter().enumerate() {
+        tipps_table.column(i+1).set_header(g.short.clone());
+    }
+
+    let mut tipps_table_data: Vec<Vec<String>> = Vec::new();
+
+    for user in users {
+        let u = user.to_user(ctx.http()).await;
+        let mut cols = Vec::new();
+        cols.push(u.map(|u| u.name).unwrap_or("UNKNOWN".to_string()));
+        for g in &games {
+            let bets = d.bets.get(&g.short);
+            let tip = if let Some(bets) = bets {
+                let bet = bets.iter().find(|b| b.user == user);
+                bet.map(|b| format!("{}:{}", b.team1, b.team2)).unwrap_or("-:-".to_string())
+            } else {
+                "-:-".to_string()
+            };
+            cols.push(tip);
+        }
+
+        tipps_table_data.push(cols);
+    }
+
+    let tipps_table_string = tipps_table.format(tipps_table_data);
+    channel
+        .send_message(&ctx, CreateMessage::new().content(format!("# Tipps\n```\n{tipps_table_string}\n```")))
+        .await?;
+
     ctx.reply("Send Msg to channel").await?;
+
+    // let mut ascii_table = AsciiTable::default();
+    // ascii_table.set_max_width(70);
+    // ascii_table.column(0).set_header("H1").set_align(Align::Left);
+    // ascii_table.column(1).set_header("H2").set_align(Align::Center);
+    // ascii_table.column(2).set_header("H3").set_align(Align::Right);
+    //
+    // let data: Vec<Vec<&dyn Display>> = vec![vec![&'v', &'v', &'v'], vec![&123, &456, &"dsadssad"]];
+    //
+    // let out = ascii_table.format(data);
+    //
+    // channel
+    //     .send_message(&ctx, CreateMessage::new().content(format!("```\n{out}\n```")))
+    //     .await?;
 
     Ok(())
 }

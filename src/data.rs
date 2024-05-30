@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use serenity::all::UserId;
 use serenity::model::Timestamp;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Team {
     pub name: String,
     pub flag: String,
@@ -30,7 +30,18 @@ pub struct Game {
 pub struct DataInter {
     pub teams: Vec<Team>,
     pub games: Vec<Game>,
-    pub bets: HashMap<String, Vec<Bet>>
+    pub bets: HashMap<String, Vec<Bet>>,
+    pub global_bets: HashMap<String, GlobalBet>
+}
+
+#[derive(Debug, Serialize, Deserialize, Eq, PartialEq, Hash, Clone)]
+pub struct GlobalBet {
+    pub name: String,
+    pub short: String,
+    pub points: u16,
+    pub start_time: chrono::NaiveDateTime,
+    pub result: Option<String>,
+    pub bets: Vec<(UserId, String)>
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -90,7 +101,8 @@ fn load_data() -> DataInter {
         return DataInter {
             games: vec![],
             teams: vec![],
-            bets: HashMap::new()
+            bets: HashMap::new(),
+            global_bets: HashMap::new()
         }
     }
 
@@ -102,7 +114,8 @@ fn load_data() -> DataInter {
         DataInter {
             games: vec![],
             teams: vec![],
-            bets: HashMap::new()
+            bets: HashMap::new(),
+            global_bets: HashMap::new()
         }
     }
 }

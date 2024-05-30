@@ -27,6 +27,7 @@ pub const POINTS_TEAM: u32 = 1;
 impl EventHandler for Handler {
     async fn ready(&self, ctx: Context, data_about_bot: Ready) {
         ctx.set_activity(Some(ActivityData::watching("Fußball")));
+        println!("Logged in and ready as {}", data_about_bot.user.name);
     }
 }
 

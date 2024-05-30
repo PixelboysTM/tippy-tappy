@@ -4,10 +4,10 @@ use ascii_table::{Align, AsciiTable};
 use itertools::Itertools;
 use poise::futures_util::StreamExt;
 use poise::{Command, CreateReply};
-use serenity::all::{Channel, Colour, CreateEmbed, CreateEmbedAuthor, CreateMessage, User};
+use serenity::all::{Channel, Colour, CreateEmbed, CreateEmbedAuthor, CreateMessage, GetMessages, User};
 use serenity::futures::Stream;
 
-use crate::data::{Bet, Data, Game, Team};
+use crate::data::{Bet, Data, Game, GlobalBet, Team};
 use crate::{Error, POINTS_CORRECT, POINTS_TEAM, POINTS_TENDENZ, PoiseContext};
 
 pub fn get_cmds() -> Vec<Command<Data, Error>> {
@@ -21,6 +21,8 @@ pub fn get_cmds() -> Vec<Command<Data, Error>> {
         bet(),
         get_bets(),
         print_overview(),
+        add_global_bet(),
+        bet_global()
     ]
 }
 
@@ -322,12 +324,28 @@ async fn get_bets(ctx: PoiseContext<'_>) -> Result<(), Error> {
 }
 
 #[poise::command(slash_command, required_permissions = "ADMINISTRATOR")]
-async fn print_overview(ctx: PoiseContext<'_>, channel: Option<Channel>) -> Result<(), Error> {
+async fn print_overview(ctx: PoiseContext<'_>, channel: Option<Channel>, clear: Option<bool>) -> Result<(), Error> {
     ctx.defer_ephemeral().await?;
 
     let channel = channel.map(|c| c.id()).unwrap_or_else(|| ctx.channel_id());
 
+    if Some(true) == clear {
+        loop {
+            let msgs = channel.messages(&ctx, GetMessages::new().limit(90)).await?;
+            if msgs.is_empty() {
+                break;
+            }
+
+            for msg in msgs {
+                msg.delete(&ctx).await?;
+            }
+        }
+    }
+
     let d = ctx.data().lock().await;
+
+
+    // START OVERVIEW
 
     let mut user_bets = HashMap::new();
     for (game_short, bets) in d.bets.iter() {
@@ -358,8 +376,8 @@ async fn print_overview(ctx: PoiseContext<'_>, channel: Option<Channel>) -> Resu
 
     let mut points_table = AsciiTable::default();
     // points_table.set_max_width(70);
-    points_table.column(0).set_header("Username");
-    points_table.column(1).set_header("Points");
+    points_table.column(0).set_header("Spieler");
+    points_table.column(1).set_header("Punkte");
 
     let mut points_table_data: Vec<Vec<String>> = Vec::new();
     for (k, v) in user_bets {
@@ -373,6 +391,10 @@ async fn print_overview(ctx: PoiseContext<'_>, channel: Option<Channel>) -> Resu
     channel
         .send_message(&ctx, CreateMessage::new().content(format!("# Übersicht\n```\n{points_table_string}\n```")))
         .await?;
+
+    // END OVERVIEW
+
+    // START GAMES
 
     let mut games_table = AsciiTable::default();
     // games_table.set_max_width(70);
@@ -402,10 +424,18 @@ async fn print_overview(ctx: PoiseContext<'_>, channel: Option<Channel>) -> Resu
         ]);
     }
 
-    let games_table_string = games_table.format(games_table_data);
-    channel
-        .send_message(&ctx, CreateMessage::new().content(format!("# Spiele\n```\n{games_table_string}\n```")))
-        .await?;
+    channel.send_message(&ctx, CreateMessage::new().content("# Spiele")).await?;
+
+    for chunk in games_table_data.chunks(10) {
+        let games_table_string = games_table.format(chunk);
+        channel
+            .send_message(&ctx, CreateMessage::new().content(format!("```\n{games_table_string}\n```")))
+            .await?;
+
+    }
+    // END GAMES
+
+    // START BETS
 
     let mut games = d.games.iter().filter(|g| g.start_time <= chrono::Local::now().naive_local() ).cloned().collect::<Vec<_>>();
 
@@ -444,21 +474,111 @@ async fn print_overview(ctx: PoiseContext<'_>, channel: Option<Channel>) -> Resu
         .send_message(&ctx, CreateMessage::new().content(format!("# Tipps\n```\n{tipps_table_string}\n```")))
         .await?;
 
-    ctx.reply("Send Msg to channel").await?;
+    // END BETS
 
-    // let mut ascii_table = AsciiTable::default();
-    // ascii_table.set_max_width(70);
-    // ascii_table.column(0).set_header("H1").set_align(Align::Left);
-    // ascii_table.column(1).set_header("H2").set_align(Align::Center);
-    // ascii_table.column(2).set_header("H3").set_align(Align::Right);
-    //
-    // let data: Vec<Vec<&dyn Display>> = vec![vec![&'v', &'v', &'v'], vec![&123, &456, &"dsadssad"]];
-    //
-    // let out = ascii_table.format(data);
-    //
-    // channel
-    //     .send_message(&ctx, CreateMessage::new().content(format!("```\n{out}\n```")))
-    //     .await?;
+    ctx.reply("Send Msg to channel").await?;
+    Ok(())
+}
+
+#[poise::command(slash_command, required_permissions = "ADMINISTRATOR")]
+async fn add_global_bet(ctx: PoiseContext<'_>, name: String, short: String, points: u16, start_time_string: String) -> Result<(), Error> {
+    ctx.defer_ephemeral().await?;
+
+    let start_time = chrono::NaiveDateTime::parse_from_str(&start_time_string, "%Y %m %d %H:%M")?;
+
+    let mut d = ctx.data().lock().await;
+    d.global_bets.insert(short.clone(), GlobalBet {
+        name,
+        short,
+        points,
+        start_time,
+        result: None,
+        bets: Vec::new()
+    });
+
+    ctx.reply("Global bet created!").await?;
+
+    Ok(())
+}
+
+
+async fn global_bet_autocomplete<'a>(
+    ctx: PoiseContext<'_>,
+    partial: &'a str,
+) -> impl Stream<Item = String> + 'a {
+    let d = ctx.data.lock().await;
+    let gs = d.global_bets.clone();
+    serenity::futures::stream::iter(gs)
+        .filter(move |(_, g)| {
+            serenity::futures::future::ready(
+                g.short.starts_with(partial) && g.start_time > chrono::Local::now().naive_local(),
+            )
+        })
+        .map(|(_,g)| {
+            format!(
+                "{} ({}pts) '{}'",
+                g.name, g.points, g.short
+            )
+        })
+}
+
+async fn country_autocomplete<'a>(
+    ctx: PoiseContext<'_>,
+    partial: &'a str,
+) -> impl Stream<Item = String> + 'a {
+    let d = ctx.data.lock().await;
+    let gs = d.teams.clone();
+    serenity::futures::stream::iter(gs)
+        .filter(move |t| {
+            serenity::futures::future::ready(
+                t.name.starts_with(partial),
+            )
+        })
+        .map(|t| {
+            format!(
+                "{} {} '{}'",
+                t.name, t.flag, t.iso
+            )
+        })
+}
+
+
+
+#[poise::command(slash_command, required_permissions = "SEND_MESSAGES")]
+async fn bet_global(
+    ctx: PoiseContext<'_>,
+    #[description = "The Bet you wanna change"]
+    #[autocomplete = "global_bet_autocomplete"]
+    global_bet: String,
+    #[description = "The country you want to set the bet for"]
+    #[autocomplete = "country_autocomplete"]
+    country: String
+) -> Result<(), Error> {
+    ctx.defer_ephemeral().await?;
+
+    let bet_ident = global_bet.split("'").collect::<Vec<_>>()[1].to_string();
+    let iso = country.split("'").collect::<Vec<_>>()[1].to_string();
+
+    let user = ctx.author().id;
+
+    let mut d = ctx.data().lock().await;
+    d.teams.iter().find(|c| c.iso == iso).ok_or("Country not valid")?;
+
+    let bet = d.global_bets.get_mut(&bet_ident).ok_or("Global Bet not valid")?;
+
+    if bet.start_time <= chrono::Local::now().naive_local() {
+        ctx.reply("Dieser Tipp kann nicht mehr verändert werden!")
+            .await?;
+        return Ok(());
+    }
+
+    if let Some((_, b)) = bet.bets.iter_mut().find(|b| b.0 == user) {
+        *b = iso;
+    } else {
+        bet.bets.push((user, iso));
+    }
+
+    ctx.reply("Bet saved!").await?;
 
     Ok(())
 }

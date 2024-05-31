@@ -8,8 +8,6 @@ use serenity::all::{
     Channel, Colour, CreateEmbed, CreateEmbedAuthor, CreateMessage, GetMessages, User,
 };
 use serenity::futures::Stream;
-use std::collections::HashMap;
-use std::fmt::Display;
 
 use crate::data::{Bet, Data, Game, GlobalBet, Team};
 use crate::{Error, PoiseContext, POINTS_CORRECT, POINTS_TEAM, POINTS_TENDENZ};

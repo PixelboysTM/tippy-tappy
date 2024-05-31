@@ -159,12 +159,12 @@ async fn list_games(ctx: PoiseContext<'_>) -> Result<(), Error> {
         ]);
     }
 
-    ctx.send_message( CreateReply::default().ephemeral(true).content("# Spiele übersicht")).await?;
+    ctx.send( CreateReply::default().ephemeral(true).content("# Spiele übersicht")).await?;
 
     for chunk in games_table_data.chunks(10) {
         let games_table_string = games_table.format(chunk);
         ctx
-            .send_message( CreateReply::default().ephemeral(true).content(format!("```\n{games_table_string}\n```")))
+            .send( CreateReply::default().ephemeral(true).content(format!("```\n{games_table_string}\n```")))
             .await?;
 
     }

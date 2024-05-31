@@ -130,7 +130,6 @@ async fn list_games(ctx: PoiseContext<'_>) -> Result<(), Error> {
     ctx.defer_ephemeral().await?;
 
     let d = ctx.data().lock().await;
-    let channel = ctx.channel_id();
 
     let mut games_table = AsciiTable::default();
     // games_table.set_max_width(70);
@@ -160,12 +159,12 @@ async fn list_games(ctx: PoiseContext<'_>) -> Result<(), Error> {
         ]);
     }
 
-    channel.send_message(&ctx, CreateMessage::new().content("# Spiele übersicht")).await?;
+    ctx.send_message( CreateReply::default().ephemeral(true).content("# Spiele übersicht")).await?;
 
     for chunk in games_table_data.chunks(10) {
         let games_table_string = games_table.format(chunk);
-        channel
-            .send_message(&ctx, CreateMessage::new().content(format!("```\n{games_table_string}\n```")))
+        ctx
+            .send_message( CreateReply::default().ephemeral(true).content(format!("```\n{games_table_string}\n```")))
             .await?;
 
     }

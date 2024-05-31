@@ -5,8 +5,7 @@ services:
     build: 
       context: ./
       dockerfile: Dockerfile.api
-    environment:
-      - DISCORD_TOKEN=DYyNzI1MTcwNzI5MDU4MzQ0.GXVHou.1pbaHwxrx4xk8sZUUwBq-zsV_d4VspW4PExwpE
-      - SAVE_FILE=./SAVES.json
+    env_file: .env
     volumes:
       - ./data:/data:rw
+    restart: always

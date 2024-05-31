@@ -126,51 +126,46 @@ async fn add_game(
 #[poise::command(slash_command, required_permissions = "SEND_MESSAGES")]
 async fn list_games(ctx: PoiseContext<'_>) -> Result<(), Error> {
     ctx.defer_ephemeral().await?;
-    let r = ctx
-        .send(
-            CreateReply::default()
-                .reply(true)
-                .embed(
-                    CreateEmbed::new()
-                        .fields(ctx.data().lock().await.games.iter().map(|g| {
-                            (
-                                format!(
-                                    "{} ({}) {}",
-                                    g.name,
-                                    g.short,
-                                    g.start_time.format("%d/%m/%Y %H:%M")
-                                ),
-                                format!(
-                                    "{} vs. {} | {}:{} {}",
-                                    g.team1_iso,
-                                    g.team2_iso,
-                                    g.result
-                                        .as_ref()
-                                        .map(|r| r.0.to_string())
-                                        .unwrap_or("-".to_string()),
-                                    g.result
-                                        .as_ref()
-                                        .map(|r| r.1.to_string())
-                                        .unwrap_or("-".to_string()),
-                                    g.result
-                                        .as_ref()
-                                        .map(|r| r.2.clone())
-                                        .unwrap_or("".to_string()),
-                                ),
-                                false,
-                            )
-                        }))
-                        .description("All available games")
-                        .title("Game List")
-                        .color(Colour::DARK_ORANGE)
-                        .author(CreateEmbedAuthor::new("Tippy Tappy")),
-                )
-                .ephemeral(true),
-        )
-        .await;
 
-    if let Err(why) = r {
-        println!("{why:?}");
+    let d = ctx.data().lock().await;
+    let channel = ctx.channel_id();
+
+    let mut games_table = AsciiTable::default();
+    // games_table.set_max_width(70);
+    games_table.column(0).set_header("Spiel");
+    games_table.column(1).set_header("Kontrahent 1");
+    games_table.column(2).set_header("vs");
+    games_table.column(3).set_header("Kontrahent 2");
+    games_table.column(4).set_header("Anpfiff");
+    games_table.column(5).set_header("Ergebnis");
+
+    let mut games = d.games.iter().cloned().collect::<Vec<_>>();
+
+    games.sort_by(|g1,g2| g1.start_time.cmp(&g2.start_time));
+
+    let mut games_table_data: Vec<Vec<String>> = Vec::new();
+    for game in games {
+        let t1 = d.teams.iter().find(|t| t.iso == game.team1_iso).unwrap();
+        let t2 = d.teams.iter().find(|t| t.iso == game.team2_iso).unwrap();
+        let r = game.result.map(|r| format!("{}:{} {}", r.0, r.1, r.2)).unwrap_or("-:-".to_string());
+        games_table_data.push(vec![
+            game.name,
+            t1.name.clone(),
+            "vs".to_string(),
+            t2.name.clone(),
+            game.start_time.format("%d.%m.%Y %H:%M Uhr").to_string(),
+            r
+        ]);
+    }
+
+    channel.send_message(&ctx, CreateMessage::new().content("# Spiele übersicht")).await?;
+
+    for chunk in games_table_data.chunks(10) {
+        let games_table_string = games_table.format(chunk);
+        channel
+            .send_message(&ctx, CreateMessage::new().content(format!("```\n{games_table_string}\n```")))
+            .await?;
+
     }
 
     Ok(())
@@ -284,6 +279,33 @@ async fn get_bets(ctx: PoiseContext<'_>) -> Result<(), Error> {
 
     let d = ctx.data().lock().await;
     let user = ctx.author().id;
+
+    let global_bets = d.global_bets.iter().filter_map(|(k,v)| {
+        v.bets.iter().find(|a| a.0 == user).map(|b| (v.clone(), b.clone()))
+    }).collect::<Vec<_>>();
+
+    let mut global_bets_table = AsciiTable::default();
+    global_bets_table.column(0).set_header("Wette");
+    global_bets_table.column(1).set_header("Wertigkeit");
+    global_bets_table.column(2).set_header("Tipp");
+    global_bets_table.column(3).set_header("Ergebnis");
+
+    let mut global_bets_data: Vec<Vec<String>> = vec![];
+    for (global_bet, bet) in global_bets {
+        global_bets_data.push(vec![
+            global_bet.name.clone(),
+            global_bet.points.to_string(),
+            d.teams.iter().find(|t| t.iso == bet.1).map(|t| t.name.clone()).unwrap_or("ERROR".to_string()),
+            global_bet.result.map(|r|d.teams.iter().find(|t| t.iso == r).map(|t| t.name.clone()).unwrap_or("ERROR".to_string())).unwrap_or("-".to_string())
+        ])
+    }
+
+    let global_bets_string = global_bets_table.format(global_bets_data);
+
+    ctx.send(CreateReply::default().ephemeral(true).content(format!("#Übergreifende Tipps\n```\n{global_bets_string}\n```"))).await?;
+
+
+
     let bets = d
         .bets
         .iter()
@@ -294,31 +316,36 @@ async fn get_bets(ctx: PoiseContext<'_>) -> Result<(), Error> {
         })
         .collect::<Vec<_>>();
 
-    let r = ctx
-        .send(
-            CreateReply::default()
-                .reply(true)
-                .embed(
-                    CreateEmbed::new()
-                        .fields(bets.iter().map(|(short, b)| {
-                            let g = d.games.iter().find(|g| &g.short == short).unwrap();
-                            (
-                                format!("{}", g.name),
-                                format!(
-                                    "({}) {} : {} ({})",
-                                    g.team1_iso, b.team1, b.team2, g.team2_iso
-                                ),
-                                true,
-                            )
-                        }))
-                        .author(CreateEmbedAuthor::new("Tippy Tappy"))
-                        .title("Bets")
-                        .description("All your bets")
-                        .color(Colour::DARK_ORANGE),
-                )
-                .ephemeral(true),
-        )
-        .await;
+    let mut bets_table = AsciiTable::default();
+    bets_table.column(0).set_header("Spiel");
+    bets_table.column(1).set_header("Kontrahent 1");
+    bets_table.column(2).set_header("vs");
+    bets_table.column(3).set_header("Kontrahent 2");
+    bets_table.column(4).set_header("Tipp");
+    bets_table.column(5).set_header("Ergebnis");
+
+    let mut bets_data: Vec<Vec<String>> = vec![];
+    for (game_short, bet) in bets {
+        let game = d.games.iter().find(|g| g.short == game_short).cloned().unwrap();
+
+        bets_data.push(vec![
+            game.name.clone(),
+            d.teams.iter().find(|t| t.iso == game.team1_iso).map(|t| t.name.clone()).unwrap_or("ERROR".to_string()),
+            "vs".to_string(),
+            d.teams.iter().find(|t| t.iso == game.team1_iso).map(|t| t.name.clone()).unwrap_or("ERROR".to_string()),
+            format!(" {}:{}", bet.team1, bet.team2),
+            game.result.map(|r| format!("{}:{} {}", r.0, r.1, r.2)).unwrap_or("-:-".to_string())
+        ])
+    }
+
+    ctx.send(CreateReply::default().ephemeral(true).content("# Spieltipps")).await?;
+
+    for chunk in bets_data.chunks(10) {
+        let bets_string = bets_table.format(chunk);
+        ctx
+            .send(CreateReply::default().ephemeral(true).content(format!("```\n{bets_string}\n```")))
+            .await?;
+    }
 
     Ok(())
 }

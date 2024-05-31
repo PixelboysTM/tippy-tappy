@@ -1,0 +1,11 @@
+version: '3.6'
+
+services:
+  app:
+    build: 
+      context: ./
+      dockerfile: Dockerfile.api
+    env_file: .env
+    volumes:
+      - ./data:/data:rw
+    restart: always

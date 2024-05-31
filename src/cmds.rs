@@ -4,11 +4,15 @@ use ascii_table::{Align, AsciiTable};
 use itertools::Itertools;
 use poise::futures_util::StreamExt;
 use poise::{Command, CreateReply};
-use serenity::all::{Channel, Colour, CreateEmbed, CreateEmbedAuthor, CreateMessage, GetMessages, User};
+use serenity::all::{
+    Channel, Colour, CreateEmbed, CreateEmbedAuthor, CreateMessage, GetMessages, User,
+};
 use serenity::futures::Stream;
+use std::collections::HashMap;
+use std::fmt::Display;
 
 use crate::data::{Bet, Data, Game, GlobalBet, Team};
-use crate::{Error, POINTS_CORRECT, POINTS_TEAM, POINTS_TENDENZ, PoiseContext};
+use crate::{Error, PoiseContext, POINTS_CORRECT, POINTS_TEAM, POINTS_TENDENZ};
 
 pub fn get_cmds() -> Vec<Command<Data, Error>> {
     vec![
@@ -22,7 +26,7 @@ pub fn get_cmds() -> Vec<Command<Data, Error>> {
         get_bets(),
         print_overview(),
         add_global_bet(),
-        bet_global()
+        bet_global(),
     ]
 }
 
@@ -351,7 +355,11 @@ async fn get_bets(ctx: PoiseContext<'_>) -> Result<(), Error> {
 }
 
 #[poise::command(slash_command, required_permissions = "ADMINISTRATOR")]
-async fn print_overview(ctx: PoiseContext<'_>, channel: Option<Channel>, clear: Option<bool>) -> Result<(), Error> {
+async fn print_overview(
+    ctx: PoiseContext<'_>,
+    channel: Option<Channel>,
+    clear: Option<bool>,
+) -> Result<(), Error> {
     ctx.defer_ephemeral().await?;
 
     let channel = channel.map(|c| c.id()).unwrap_or_else(|| ctx.channel_id());
@@ -371,17 +379,16 @@ async fn print_overview(ctx: PoiseContext<'_>, channel: Option<Channel>, clear: 
 
     let d = ctx.data().lock().await;
 
-
     // START OVERVIEW
 
-    let mut user_bets = HashMap::new();
+    let mut user_bets_points = HashMap::new();
     for (game_short, bets) in d.bets.iter() {
         let g = d.games.iter().find(|g| &g.short == game_short).unwrap();
         let result = if let Some(r) = g.result.as_ref() {
             r
         } else {
             for bet in bets {
-                user_bets.entry(bet.user).or_insert(0u32);
+                user_bets_points.entry(bet.user).or_insert(0u32);
             }
 
             continue;
@@ -392,12 +399,27 @@ async fn print_overview(ctx: PoiseContext<'_>, channel: Option<Channel>, clear: 
                 POINTS_CORRECT
             } else if (bet.team1 as i16 - bet.team2 as i16) == (result.0 as i16 - result.1 as i16) {
                 POINTS_TENDENZ
-            } else if (bet.team1 > bet.team2 && result.0 > result.1) || (bet.team1 < bet.team2 && result.0 < result.1) {
+            } else if (bet.team1 > bet.team2 && result.0 > result.1)
+                || (bet.team1 < bet.team2 && result.0 < result.1)
+            {
                 POINTS_TEAM
-            } else { 0 };
+            } else {
+                0
+            };
 
-            let mut ps = user_bets.entry(bet.user).or_insert(0u32);
-            *ps +=  points;
+            let ps = user_bets_points.entry(bet.user).or_insert(0u32);
+            *ps += points;
+        }
+    }
+
+    for (_, b) in d.global_bets.iter() {
+        if let Some(res) = &b.result {
+            for (user, tip) in b.bets.iter() {
+                if tip == res {
+                    let ps = user_bets_points.entry(*user).or_insert(0u32);
+                    *ps += b.points as u32;
+                }
+            }
         }
     }
 
@@ -407,19 +429,64 @@ async fn print_overview(ctx: PoiseContext<'_>, channel: Option<Channel>, clear: 
     points_table.column(1).set_header("Punkte");
 
     let mut points_table_data: Vec<Vec<String>> = Vec::new();
-    for (k, v) in user_bets {
-        let name = k.to_user(ctx.http()).await.map(|u| u.name.clone()).unwrap_or("UNKNOWN".to_string());
+    for (k, v) in user_bets_points {
+        let name = k
+            .to_user(ctx.http())
+            .await
+            .map(|u| u.name.clone())
+            .unwrap_or("UNKNOWN".to_string());
         points_table_data.push(vec![name, v.to_string()]);
     }
 
     let points_table_string = points_table.format(points_table_data);
 
-
     channel
-        .send_message(&ctx, CreateMessage::new().content(format!("# Übersicht\n```\n{points_table_string}\n```")))
+        .send_message(
+            &ctx,
+            CreateMessage::new().content(format!("# Übersicht\n```\n{points_table_string}\n```")),
+        )
         .await?;
 
     // END OVERVIEW
+
+    // START GLOBAL BETS
+
+    let mut global_bets_table = AsciiTable::default();
+    global_bets_table.column(0).set_header("Wette");
+    global_bets_table.column(2).set_header("Punkte");
+    global_bets_table.column(2).set_header("Wetten bis");
+    global_bets_table.column(3).set_header("Gewinner");
+
+    let mut global_bets = d.global_bets.values().cloned().collect::<Vec<_>>();
+    global_bets.sort_by(|b1, b2| b1.start_time.cmp(&b2.start_time));
+
+    let mut global_bets_data: Vec<Vec<String>> = Vec::new();
+
+    for bet in global_bets {
+        let winner = bet
+            .result
+            .map(|w| d.teams.iter().find(|c| c.iso == w).unwrap().name.clone())
+            .unwrap_or("_".to_string());
+        global_bets_data.push(vec![
+            bet.name,
+            bet.points.to_string(),
+            bet.start_time.format("%d.%m.%Y %H:%M Uhr").to_string(),
+            winner,
+        ]);
+    }
+
+    let global_bets_string = global_bets_table.format(global_bets_data);
+
+    channel
+        .send_message(
+            &ctx,
+            CreateMessage::new().content(format!(
+                "# Übergeordnete Wetten\n```\n{global_bets_string}\n```"
+            )),
+        )
+        .await?;
+
+    // END GLOBAL BETS
 
     // START GAMES
 
@@ -434,46 +501,64 @@ async fn print_overview(ctx: PoiseContext<'_>, channel: Option<Channel>, clear: 
 
     let mut games = d.games.iter().cloned().collect::<Vec<_>>();
 
-    games.sort_by(|g1,g2| g1.start_time.cmp(&g2.start_time));
+    games.sort_by(|g1, g2| g1.start_time.cmp(&g2.start_time));
 
     let mut games_table_data: Vec<Vec<String>> = Vec::new();
     for game in games {
         let t1 = d.teams.iter().find(|t| t.iso == game.team1_iso).unwrap();
         let t2 = d.teams.iter().find(|t| t.iso == game.team2_iso).unwrap();
-        let r = game.result.map(|r| format!("{}:{} {}", r.0, r.1, r.2)).unwrap_or("-:-".to_string());
+        let r = game
+            .result
+            .map(|r| format!("{}:{} {}", r.0, r.1, r.2))
+            .unwrap_or("-:-".to_string());
         games_table_data.push(vec![
-           game.name,
-           t1.name.clone(),
-           "vs".to_string(),
-           t2.name.clone(),
-           game.start_time.format("%d.%m.%Y %H:%M Uhr").to_string(),
-           r
+            game.name,
+            t1.name.clone(),
+            "vs".to_string(),
+            t2.name.clone(),
+            game.start_time.format("%d.%m.%Y %H:%M Uhr").to_string(),
+            r,
         ]);
     }
 
-    channel.send_message(&ctx, CreateMessage::new().content("# Spiele")).await?;
+    channel
+        .send_message(&ctx, CreateMessage::new().content("# Spiele"))
+        .await?;
 
     for chunk in games_table_data.chunks(10) {
         let games_table_string = games_table.format(chunk);
         channel
-            .send_message(&ctx, CreateMessage::new().content(format!("```\n{games_table_string}\n```")))
+            .send_message(
+                &ctx,
+                CreateMessage::new().content(format!("```\n{games_table_string}\n```")),
+            )
             .await?;
-
     }
     // END GAMES
 
     // START BETS
 
-    let mut games = d.games.iter().filter(|g| g.start_time <= chrono::Local::now().naive_local() ).cloned().collect::<Vec<_>>();
+    let mut games = d
+        .games
+        .iter()
+        .filter(|g| g.start_time <= chrono::Local::now().naive_local())
+        .cloned()
+        .collect::<Vec<_>>();
 
-    games.sort_by(|g1,g2| g1.start_time.cmp(&g2.start_time));
+    games.sort_by(|g1, g2| g1.start_time.cmp(&g2.start_time));
 
-    let users = d.bets.iter().map(|(k,v)| v.iter().map(|b| b.user).collect::<Vec<_>>()).flatten().unique().collect::<Vec<_>>();
+    let users = d
+        .bets
+        .iter()
+        .map(|(_, v)| v.iter().map(|b| b.user).collect::<Vec<_>>())
+        .flatten()
+        .unique()
+        .collect::<Vec<_>>();
 
     let mut tipps_table = AsciiTable::default();
     tipps_table.column(0).set_header("Spieler\\Game");
     for (i, g) in games.iter().enumerate() {
-        tipps_table.column(i+1).set_header(g.short.clone());
+        tipps_table.column(i + 1).set_header(g.short.clone());
     }
 
     let mut tipps_table_data: Vec<Vec<String>> = Vec::new();
@@ -486,7 +571,8 @@ async fn print_overview(ctx: PoiseContext<'_>, channel: Option<Channel>, clear: 
             let bets = d.bets.get(&g.short);
             let tip = if let Some(bets) = bets {
                 let bet = bets.iter().find(|b| b.user == user);
-                bet.map(|b| format!("{}:{}", b.team1, b.team2)).unwrap_or("-:-".to_string())
+                bet.map(|b| format!("{}:{}", b.team1, b.team2))
+                    .unwrap_or("-:-".to_string())
             } else {
                 "-:-".to_string()
             };
@@ -498,7 +584,10 @@ async fn print_overview(ctx: PoiseContext<'_>, channel: Option<Channel>, clear: 
 
     let tipps_table_string = tipps_table.format(tipps_table_data);
     channel
-        .send_message(&ctx, CreateMessage::new().content(format!("# Tipps\n```\n{tipps_table_string}\n```")))
+        .send_message(
+            &ctx,
+            CreateMessage::new().content(format!("# Tipps\n```\n{tipps_table_string}\n```")),
+        )
         .await?;
 
     // END BETS
@@ -508,26 +597,34 @@ async fn print_overview(ctx: PoiseContext<'_>, channel: Option<Channel>, clear: 
 }
 
 #[poise::command(slash_command, required_permissions = "ADMINISTRATOR")]
-async fn add_global_bet(ctx: PoiseContext<'_>, name: String, short: String, points: u16, start_time_string: String) -> Result<(), Error> {
+async fn add_global_bet(
+    ctx: PoiseContext<'_>,
+    name: String,
+    short: String,
+    points: u16,
+    start_time_string: String,
+) -> Result<(), Error> {
     ctx.defer_ephemeral().await?;
 
     let start_time = chrono::NaiveDateTime::parse_from_str(&start_time_string, "%Y %m %d %H:%M")?;
 
     let mut d = ctx.data().lock().await;
-    d.global_bets.insert(short.clone(), GlobalBet {
-        name,
-        short,
-        points,
-        start_time,
-        result: None,
-        bets: Vec::new()
-    });
+    d.global_bets.insert(
+        short.clone(),
+        GlobalBet {
+            name,
+            short,
+            points,
+            start_time,
+            result: None,
+            bets: Vec::new(),
+        },
+    );
 
     ctx.reply("Global bet created!").await?;
 
     Ok(())
 }
-
 
 async fn global_bet_autocomplete<'a>(
     ctx: PoiseContext<'_>,
@@ -541,12 +638,7 @@ async fn global_bet_autocomplete<'a>(
                 g.short.starts_with(partial) && g.start_time > chrono::Local::now().naive_local(),
             )
         })
-        .map(|(_,g)| {
-            format!(
-                "{} ({}pts) '{}'",
-                g.name, g.points, g.short
-            )
-        })
+        .map(|(_, g)| format!("{} ({}pts) '{}'", g.name, g.points, g.short))
 }
 
 async fn country_autocomplete<'a>(
@@ -556,20 +648,9 @@ async fn country_autocomplete<'a>(
     let d = ctx.data.lock().await;
     let gs = d.teams.clone();
     serenity::futures::stream::iter(gs)
-        .filter(move |t| {
-            serenity::futures::future::ready(
-                t.name.starts_with(partial),
-            )
-        })
-        .map(|t| {
-            format!(
-                "{} {} '{}'",
-                t.name, t.flag, t.iso
-            )
-        })
+        .filter(move |t| serenity::futures::future::ready(t.name.starts_with(partial)))
+        .map(|t| format!("{} {} '{}'", t.name, t.flag, t.iso))
 }
-
-
 
 #[poise::command(slash_command, required_permissions = "SEND_MESSAGES")]
 async fn bet_global(
@@ -579,7 +660,7 @@ async fn bet_global(
     global_bet: String,
     #[description = "The country you want to set the bet for"]
     #[autocomplete = "country_autocomplete"]
-    country: String
+    country: String,
 ) -> Result<(), Error> {
     ctx.defer_ephemeral().await?;
 
@@ -589,9 +670,15 @@ async fn bet_global(
     let user = ctx.author().id;
 
     let mut d = ctx.data().lock().await;
-    d.teams.iter().find(|c| c.iso == iso).ok_or("Country not valid")?;
+    d.teams
+        .iter()
+        .find(|c| c.iso == iso)
+        .ok_or("Country not valid")?;
 
-    let bet = d.global_bets.get_mut(&bet_ident).ok_or("Global Bet not valid")?;
+    let bet = d
+        .global_bets
+        .get_mut(&bet_ident)
+        .ok_or("Global Bet not valid")?;
 
     if bet.start_time <= chrono::Local::now().naive_local() {
         ctx.reply("Dieser Tipp kann nicht mehr verändert werden!")
@@ -606,6 +693,40 @@ async fn bet_global(
     }
 
     ctx.reply("Bet saved!").await?;
+
+    Ok(())
+}
+
+#[poise::command(slash_command, required_permissions = "ADMINISTRATOR")]
+async fn add_global_score(
+    ctx: PoiseContext<'_>,
+    #[description = "The Bet you wanna add the score to"]
+    #[autocomplete = "global_bet_autocomplete"]
+    global_bet: String,
+    #[description = "The country that won"]
+    #[autocomplete = "country_autocomplete"]
+    country: String,
+) -> Result<(), Error> {
+    ctx.defer_ephemeral().await?;
+
+    let bet_ident = global_bet.split("'").collect::<Vec<_>>()[1].to_string();
+    let iso = country.split("'").collect::<Vec<_>>()[1].to_string();
+
+    let mut d = ctx.data().lock().await;
+
+    d.teams
+        .iter()
+        .find(|c| c.iso == iso)
+        .ok_or("Country not valid")?;
+
+    let bet = d
+        .global_bets
+        .get_mut(&bet_ident)
+        .ok_or("Global Bet not valid")?;
+
+    bet.result = Some(iso);
+
+    ctx.reply("Score was added!").await?;
 
     Ok(())
 }

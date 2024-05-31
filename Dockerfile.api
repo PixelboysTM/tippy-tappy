@@ -1,0 +1,11 @@
+FROM rust:latest as builder
+WORKDIR /usr/src/app
+COPY . .
+RUN cargo install --path .
+
+FROM debian:bookworm-slim as runner
+RUN apt-get update && apt-get install -y libc6-dev build-essential
+COPY --from=builder /usr/local/cargo/bin /usr/local/bin
+WORKDIR /data
+# COPY ./data /data
+CMD [ "tippy-tappy" ]

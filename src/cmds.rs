@@ -303,9 +303,10 @@ async fn get_bets(ctx: PoiseContext<'_>) -> Result<(), Error> {
 
     let global_bets_string = global_bets_table.format(global_bets_data);
 
-    ctx.send(CreateReply::default().ephemeral(true).content(format!("#Übergreifende Tipps\n```\n{global_bets_string}\n```"))).await?;
-
-
+    ctx.send(CreateReply::default().ephemeral(true).content(format!(
+        "# Übergreifende Tipps\n```\n{global_bets_string}\n```"
+    )))
+    .await?;
 
     let mut bets = d
         .bets

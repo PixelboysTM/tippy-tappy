@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 use std::fmt::Display;
+use std::ops::Sub;
 use ascii_table::{Align, AsciiTable};
+use chrono::NaiveDateTime;
 use itertools::Itertools;
 use poise::futures_util::StreamExt;
 use poise::{Command, CreateReply};
@@ -11,6 +13,10 @@ use serenity::futures::Stream;
 
 use crate::data::{Bet, Data, Game, GlobalBet, Team};
 use crate::{Error, PoiseContext, POINTS_CORRECT, POINTS_TEAM, POINTS_TENDENZ};
+
+pub fn get_now() -> NaiveDateTime {
+    chrono::Local::now().naive_local().sub(chrono::Duration::hours(-2))
+}
 
 pub fn get_cmds() -> Vec<Command<Data, Error>> {
     vec![
@@ -205,7 +211,7 @@ async fn game_autocomplete<'a>(
     serenity::futures::stream::iter(gs)
         .filter(move |n: &Game| {
             serenity::futures::future::ready(
-                n.short.starts_with(partial) && n.start_time > chrono::Utc::now().naive_local(),
+                n.short.starts_with(partial) && n.start_time > get_now(),
             )
         })
         .map(|g| {
@@ -247,7 +253,7 @@ async fn bet(
         .ok_or("Game does not exist!")?
         .clone();
 
-    if real_game.start_time <= chrono::Utc::now().naive_local() {
+    if real_game.start_time <= get_now() {
         ctx.reply("Der Tipp für dieses Spiel kann nicht mehr verändert werden!")
             .await?;
         return Ok(());
@@ -539,7 +545,7 @@ async fn print_overview(
     let mut games = d
         .games
         .iter()
-        .filter(|g| g.start_time <= chrono::Utc::now().naive_local())
+        .filter(|g| g.start_time <= get_now())
         .cloned()
         .collect::<Vec<_>>();
 
@@ -633,7 +639,7 @@ async fn global_bet_autocomplete<'a>(
     serenity::futures::stream::iter(gs)
         .filter(move |(_, g)| {
             serenity::futures::future::ready(
-                g.short.starts_with(partial) && g.start_time > chrono::Utc::now().naive_local(),
+                g.short.starts_with(partial) && g.start_time > get_now(),
             )
         })
         .map(|(_, g)| format!("{} ({}pts) '{}'", g.name, g.points, g.short))
@@ -678,7 +684,7 @@ async fn bet_global(
         .get_mut(&bet_ident)
         .ok_or("Global Bet not valid")?;
 
-    if bet.start_time <= chrono::Utc::now().naive_local() {
+    if bet.start_time <= get_now() {
         ctx.reply("Dieser Tipp kann nicht mehr verändert werden!")
             .await?;
         return Ok(());

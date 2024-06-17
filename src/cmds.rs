@@ -334,7 +334,7 @@ async fn get_bets(ctx: PoiseContext<'_>) -> Result<(), Error> {
             game.name.clone(),
             d.teams.iter().find(|t| t.iso == game.team1_iso).map(|t| t.name.clone()).unwrap_or("ERROR".to_string()),
             "vs".to_string(),
-            d.teams.iter().find(|t| t.iso == game.team1_iso).map(|t| t.name.clone()).unwrap_or("ERROR".to_string()),
+            d.teams.iter().find(|t| t.iso == game.team2_iso).map(|t| t.name.clone()).unwrap_or("ERROR".to_string()),
             format!(" {}:{}", bet.team1, bet.team2),
             game.result.map(|r| format!("{}:{} {}", r.0, r.1, r.2)).unwrap_or("-:-".to_string())
         ])

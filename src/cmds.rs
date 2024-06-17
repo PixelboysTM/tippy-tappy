@@ -205,7 +205,7 @@ async fn game_autocomplete<'a>(
     serenity::futures::stream::iter(gs)
         .filter(move |n: &Game| {
             serenity::futures::future::ready(
-                n.short.starts_with(partial) && n.start_time > chrono::Local::now().naive_local(),
+                n.short.starts_with(partial) && n.start_time > chrono::Local::now().naive_utc(),
             )
         })
         .map(|g| {
@@ -247,7 +247,7 @@ async fn bet(
         .ok_or("Game does not exist!")?
         .clone();
 
-    if real_game.start_time <= chrono::Local::now().naive_local() {
+    if real_game.start_time <= chrono::Local::now().naive_utc() {
         ctx.reply("Der Tipp für dieses Spiel kann nicht mehr verändert werden!")
             .await?;
         return Ok(());
@@ -307,7 +307,7 @@ async fn get_bets(ctx: PoiseContext<'_>) -> Result<(), Error> {
 
 
 
-    let bets = d
+    let mut bets = d
         .bets
         .iter()
         .filter_map(|(k, v)| {
@@ -326,8 +326,8 @@ async fn get_bets(ctx: PoiseContext<'_>) -> Result<(), Error> {
     bets_table.column(5).set_header("Ergebnis");
 
     let mut bets_data: Vec<Vec<String>> = vec![];
-    for (game_short, bet) in bets {
-        let game = d.games.iter().find(|g| g.short == game_short).cloned().unwrap();
+    for (game_short, bet) in bets.iter().sorted_by(|a,b| d.games.iter().find(|g| g.short == a.0).cloned().unwrap().start_time.cmp(&(d.games.iter().find(|g| g.short == b.0).cloned().unwrap()).start_time)) {
+        let game = d.games.iter().find(|g| &g.short == game_short).cloned().unwrap();
 
         bets_data.push(vec![
             game.name.clone(),
@@ -426,7 +426,7 @@ async fn print_overview(
     points_table.column(1).set_header("Punkte");
 
     let mut points_table_data: Vec<Vec<String>> = Vec::new();
-    for (k, v) in user_bets_points {
+    for (k, v) in user_bets_points.iter().sorted_by(|a,b| a.1.cmp(&b.1)) {
         let name = k
             .to_user(ctx.http())
             .await
@@ -538,7 +538,7 @@ async fn print_overview(
     let mut games = d
         .games
         .iter()
-        .filter(|g| g.start_time <= chrono::Local::now().naive_local())
+        .filter(|g| g.start_time <= chrono::Local::now().naive_utc())
         .cloned()
         .collect::<Vec<_>>();
 
@@ -632,7 +632,7 @@ async fn global_bet_autocomplete<'a>(
     serenity::futures::stream::iter(gs)
         .filter(move |(_, g)| {
             serenity::futures::future::ready(
-                g.short.starts_with(partial) && g.start_time > chrono::Local::now().naive_local(),
+                g.short.starts_with(partial) && g.start_time > chrono::Local::now().naive_utc(),
             )
         })
         .map(|(_, g)| format!("{} ({}pts) '{}'", g.name, g.points, g.short))
@@ -677,7 +677,7 @@ async fn bet_global(
         .get_mut(&bet_ident)
         .ok_or("Global Bet not valid")?;
 
-    if bet.start_time <= chrono::Local::now().naive_local() {
+    if bet.start_time <= chrono::Local::now().naive_utc() {
         ctx.reply("Dieser Tipp kann nicht mehr verändert werden!")
             .await?;
         return Ok(());

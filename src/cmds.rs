@@ -1,6 +1,3 @@
-use std::collections::HashMap;
-use std::fmt::Display;
-use std::ops::Sub;
 use ascii_table::{Align, AsciiTable};
 use chrono::NaiveDateTime;
 use itertools::Itertools;
@@ -10,12 +7,17 @@ use serenity::all::{
     Channel, Colour, CreateEmbed, CreateEmbedAuthor, CreateMessage, GetMessages, User,
 };
 use serenity::futures::Stream;
+use std::collections::HashMap;
+use std::fmt::Display;
+use std::ops::Sub;
 
 use crate::data::{Bet, Data, Game, GlobalBet, Team};
 use crate::{Error, PoiseContext, POINTS_CORRECT, POINTS_TEAM, POINTS_TENDENZ};
 
 pub fn get_now() -> NaiveDateTime {
-    chrono::Local::now().naive_local().sub(chrono::Duration::hours(-2))
+    chrono::Local::now()
+        .naive_local()
+        .sub(chrono::Duration::hours(-2))
 }
 
 pub fn get_cmds() -> Vec<Command<Data, Error>> {
@@ -148,31 +150,41 @@ async fn list_games(ctx: PoiseContext<'_>) -> Result<(), Error> {
 
     let mut games = d.games.iter().cloned().collect::<Vec<_>>();
 
-    games.sort_by(|g1,g2| g1.start_time.cmp(&g2.start_time));
+    games.sort_by(|g1, g2| g1.start_time.cmp(&g2.start_time));
 
     let mut games_table_data: Vec<Vec<String>> = Vec::new();
     for game in games {
         let t1 = d.teams.iter().find(|t| t.iso == game.team1_iso).unwrap();
         let t2 = d.teams.iter().find(|t| t.iso == game.team2_iso).unwrap();
-        let r = game.result.map(|r| format!("{}:{} {}", r.0, r.1, r.2)).unwrap_or("-:-".to_string());
+        let r = game
+            .result
+            .map(|r| format!("{}:{} {}", r.0, r.1, r.2))
+            .unwrap_or("-:-".to_string());
         games_table_data.push(vec![
             game.name,
             t1.name.clone(),
             "vs".to_string(),
             t2.name.clone(),
             game.start_time.format("%d.%m.%Y %H:%M Uhr").to_string(),
-            r
+            r,
         ]);
     }
 
-    ctx.send( CreateReply::default().ephemeral(true).content("# Spiele übersicht")).await?;
+    ctx.send(
+        CreateReply::default()
+            .ephemeral(true)
+            .content("# Spiele übersicht"),
+    )
+    .await?;
 
     for chunk in games_table_data.chunks(10) {
         let games_table_string = games_table.format(chunk);
-        ctx
-            .send( CreateReply::default().ephemeral(true).content(format!("```\n{games_table_string}\n```")))
-            .await?;
-
+        ctx.send(
+            CreateReply::default()
+                .ephemeral(true)
+                .content(format!("```\n{games_table_string}\n```")),
+        )
+        .await?;
     }
 
     Ok(())
@@ -287,9 +299,16 @@ async fn get_bets(ctx: PoiseContext<'_>) -> Result<(), Error> {
     let d = ctx.data().lock().await;
     let user = ctx.author().id;
 
-    let global_bets = d.global_bets.iter().filter_map(|(k,v)| {
-        v.bets.iter().find(|a| a.0 == user).map(|b| (v.clone(), b.clone()))
-    }).collect::<Vec<_>>();
+    let global_bets = d
+        .global_bets
+        .iter()
+        .filter_map(|(k, v)| {
+            v.bets
+                .iter()
+                .find(|a| a.0 == user)
+                .map(|b| (v.clone(), b.clone()))
+        })
+        .collect::<Vec<_>>();
 
     let mut global_bets_table = AsciiTable::default();
     global_bets_table.column(0).set_header("Wette");
@@ -302,8 +321,21 @@ async fn get_bets(ctx: PoiseContext<'_>) -> Result<(), Error> {
         global_bets_data.push(vec![
             global_bet.name.clone(),
             global_bet.points.to_string(),
-            d.teams.iter().find(|t| t.iso == bet.1).map(|t| t.name.clone()).unwrap_or("ERROR".to_string()),
-            global_bet.result.map(|r|d.teams.iter().find(|t| t.iso == r).map(|t| t.name.clone()).unwrap_or("ERROR".to_string())).unwrap_or("-".to_string())
+            d.teams
+                .iter()
+                .find(|t| t.iso == bet.1)
+                .map(|t| t.name.clone())
+                .unwrap_or("ERROR".to_string()),
+            global_bet
+                .result
+                .map(|r| {
+                    d.teams
+                        .iter()
+                        .find(|t| t.iso == r)
+                        .map(|t| t.name.clone())
+                        .unwrap_or("ERROR".to_string())
+                })
+                .unwrap_or("-".to_string()),
         ])
     }
 
@@ -333,26 +365,57 @@ async fn get_bets(ctx: PoiseContext<'_>) -> Result<(), Error> {
     bets_table.column(5).set_header("Ergebnis");
 
     let mut bets_data: Vec<Vec<String>> = vec![];
-    for (game_short, bet) in bets.iter().sorted_by(|a,b| d.games.iter().find(|g| g.short == a.0).cloned().unwrap().start_time.cmp(&(d.games.iter().find(|g| g.short == b.0).cloned().unwrap()).start_time)) {
-        let game = d.games.iter().find(|g| &g.short == game_short).cloned().unwrap();
+    for (game_short, bet) in bets.iter().sorted_by(|a, b| {
+        d.games
+            .iter()
+            .find(|g| g.short == a.0)
+            .cloned()
+            .unwrap()
+            .start_time
+            .cmp(&(d.games.iter().find(|g| g.short == b.0).cloned().unwrap()).start_time)
+    }) {
+        let game = d
+            .games
+            .iter()
+            .find(|g| &g.short == game_short)
+            .cloned()
+            .unwrap();
 
         bets_data.push(vec![
             game.name.clone(),
-            d.teams.iter().find(|t| t.iso == game.team1_iso).map(|t| t.name.clone()).unwrap_or("ERROR".to_string()),
+            d.teams
+                .iter()
+                .find(|t| t.iso == game.team1_iso)
+                .map(|t| t.name.clone())
+                .unwrap_or("ERROR".to_string()),
             "vs".to_string(),
-            d.teams.iter().find(|t| t.iso == game.team2_iso).map(|t| t.name.clone()).unwrap_or("ERROR".to_string()),
+            d.teams
+                .iter()
+                .find(|t| t.iso == game.team2_iso)
+                .map(|t| t.name.clone())
+                .unwrap_or("ERROR".to_string()),
             format!(" {}:{}", bet.team1, bet.team2),
-            game.result.map(|r| format!("{}:{} {}", r.0, r.1, r.2)).unwrap_or("-:-".to_string())
+            game.result
+                .map(|r| format!("{}:{} {}", r.0, r.1, r.2))
+                .unwrap_or("-:-".to_string()),
         ])
     }
 
-    ctx.send(CreateReply::default().ephemeral(true).content("# Spieltipps")).await?;
+    ctx.send(
+        CreateReply::default()
+            .ephemeral(true)
+            .content("# Spieltipps"),
+    )
+    .await?;
 
     for chunk in bets_data.chunks(10) {
         let bets_string = bets_table.format(chunk);
-        ctx
-            .send(CreateReply::default().ephemeral(true).content(format!("```\n{bets_string}\n```")))
-            .await?;
+        ctx.send(
+            CreateReply::default()
+                .ephemeral(true)
+                .content(format!("```\n{bets_string}\n```")),
+        )
+        .await?;
     }
 
     Ok(())
@@ -433,7 +496,10 @@ async fn print_overview(
     points_table.column(1).set_header("Punkte");
 
     let mut points_table_data: Vec<Vec<String>> = Vec::new();
-    for (k, v) in user_bets_points.iter().sorted_by(|a,b| a.1.cmp(&b.1).reverse()) {
+    for (k, v) in user_bets_points
+        .iter()
+        .sorted_by(|a, b| a.1.cmp(&b.1).reverse())
+    {
         let name = k
             .to_user(ctx.http())
             .await
@@ -551,48 +617,59 @@ async fn print_overview(
 
     games.sort_by(|g1, g2| g1.start_time.cmp(&g2.start_time));
 
-    let users = d
+    let mut users = d
         .bets
         .iter()
-        .map(|(_, v)| v.iter().map(|b| b.user).collect::<Vec<_>>())
+        .map(|(_, v)| v.iter().map(|b| (b.user, None)).collect::<Vec<_>>())
         .flatten()
         .unique()
         .collect::<Vec<_>>();
 
-    let mut tipps_table = AsciiTable::default();
-    tipps_table.column(0).set_header("Spieler\\Game");
-    for (i, g) in games.iter().enumerate() {
-        tipps_table.column(i + 1).set_header(g.short.clone());
+    for (id, user) in &mut users {
+        let u = id.to_user(ctx.http()).await;
+        *user = u.ok();
     }
 
-    let mut tipps_table_data: Vec<Vec<String>> = Vec::new();
+    channel
+        .send_message(&ctx, CreateMessage::new().content(format!("# Tipps")))
+        .await?;
 
-    for user in users {
-        let u = user.to_user(ctx.http()).await;
-        let mut cols = Vec::new();
-        cols.push(u.map(|u| u.name).unwrap_or("UNKNOWN".to_string()));
-        for g in &games {
-            let bets = d.bets.get(&g.short);
-            let tip = if let Some(bets) = bets {
-                let bet = bets.iter().find(|b| b.user == user);
-                bet.map(|b| format!("{}:{}", b.team1, b.team2))
-                    .unwrap_or("-:-".to_string())
-            } else {
-                "-:-".to_string()
-            };
-            cols.push(tip);
+    let mut tipps_strings = Vec::new();
+
+    for tipps in &games.iter().chunks(15) {
+        let mut tipps_table = AsciiTable::default();
+        tipps_table.column(0).set_header("Spieler\\Game");
+        let mut tipps_table_data: Vec<Vec<String>> = Vec::new();
+        for (i, g) in tipps.enumerate() {
+            tipps_table.column(i + 1).set_header(g.short.clone());
+
+            for (user, u) in &users {
+                let mut cols = Vec::new();
+                cols.push(u.clone().map(|u| u.name).unwrap_or("UNKNOWN".to_string()));
+
+                let bets = d.bets.get(&g.short);
+                let tip = if let Some(bets) = bets {
+                    let bet = bets.iter().find(|b| &b.user == user);
+                    bet.map(|b| format!("{}:{}", b.team1, b.team2))
+                        .unwrap_or("-:-".to_string())
+                } else {
+                    "-:-".to_string()
+                };
+                cols.push(tip);
+
+                tipps_table_data.push(cols);
+            }
         }
 
-        tipps_table_data.push(cols);
+        let tipps_table_string = tipps_table.format(tipps_table_data);
+        tipps_strings.push(tipps_table_string);
     }
 
-    let tipps_table_string = tipps_table.format(tipps_table_data);
-    channel
-        .send_message(
-            &ctx,
-            CreateMessage::new().content(format!("# Tipps\n```\n{tipps_table_string}\n```")),
-        )
-        .await?;
+    for s in tipps_strings {
+        channel
+            .send_message(&ctx, CreateMessage::new().content(format!("```\n{s}\n```")))
+            .await?;
+    }
 
     // END BETS
 

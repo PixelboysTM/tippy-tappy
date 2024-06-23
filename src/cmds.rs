@@ -151,6 +151,7 @@ async fn list_games(ctx: PoiseContext<'_>) -> Result<(), Error> {
     let mut games = d.games.iter().cloned().collect::<Vec<_>>();
 
     games.sort_by(|g1, g2| g1.start_time.cmp(&g2.start_time));
+    games.sort_by(|g1, g2| g1.start_time.cmp(&g2.start_time));
 
     let mut games_table_data: Vec<Vec<String>> = Vec::new();
     for game in games {
@@ -617,36 +618,32 @@ async fn print_overview(
 
     games.sort_by(|g1, g2| g1.start_time.cmp(&g2.start_time));
 
-    let mut users = d
+    let users = d
         .bets
         .iter()
-        .map(|(_, v)| v.iter().map(|b| (b.user, None)).collect::<Vec<_>>())
+        .map(|(_, v)| v.iter().map(|b| b.user).collect::<Vec<_>>())
         .flatten()
         .unique()
         .collect::<Vec<_>>();
-
-    for (id, user) in &mut users {
-        let u = id.to_user(ctx.http()).await;
-        *user = u.ok();
-    }
 
     channel
         .send_message(&ctx, CreateMessage::new().content(format!("# Tipps")))
         .await?;
 
-    let mut tipps_strings = Vec::new();
-
-    for tipps in &games.iter().chunks(10) {
+    for chunk in games.chunks(10) {
         let mut tipps_table = AsciiTable::default();
         tipps_table.column(0).set_header("Spieler\\Game");
-        let mut tipps_table_data: Vec<Vec<String>> = Vec::new();
-        for (i, g) in tipps.enumerate() {
+        for (i, g) in chunk.iter().enumerate() {
             tipps_table.column(i + 1).set_header(g.short.clone());
+        }
 
-            for (user, u) in &users {
-                let mut cols = Vec::new();
-                cols.push(u.clone().map(|u| u.name).unwrap_or("UNKNOWN".to_string()));
+        let mut tipps_table_data: Vec<Vec<String>> = Vec::new();
 
+        for user in &users {
+            let u = user.to_user(ctx.http()).await;
+            let mut cols = Vec::new();
+            cols.push(u.map(|u| u.name).unwrap_or("UNKNOWN".to_string()));
+            for g in chunk {
                 let bets = d.bets.get(&g.short);
                 let tip = if let Some(bets) = bets {
                     let bet = bets.iter().find(|b| &b.user == user);
@@ -656,18 +653,17 @@ async fn print_overview(
                     "-:-".to_string()
                 };
                 cols.push(tip);
-
-                tipps_table_data.push(cols);
             }
+
+            tipps_table_data.push(cols);
         }
 
         let tipps_table_string = tipps_table.format(tipps_table_data);
-        tipps_strings.push(tipps_table_string);
-    }
-
-    for s in tipps_strings {
         channel
-            .send_message(&ctx, CreateMessage::new().content(format!("```\n{s}\n```")))
+            .send_message(
+                &ctx,
+                CreateMessage::new().content(format!("```\n{tipps_table_string}\n```")),
+            )
             .await?;
     }
 

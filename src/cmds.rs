@@ -636,7 +636,7 @@ async fn print_overview(
 
     let mut tipps_strings = Vec::new();
 
-    for tipps in &games.iter().chunks(15) {
+    for tipps in &games.iter().chunks(10) {
         let mut tipps_table = AsciiTable::default();
         tipps_table.column(0).set_header("Spieler\\Game");
         let mut tipps_table_data: Vec<Vec<String>> = Vec::new();

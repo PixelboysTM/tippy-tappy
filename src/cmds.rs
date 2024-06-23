@@ -33,6 +33,7 @@ pub fn get_cmds() -> Vec<Command<Data, Error>> {
         print_overview(),
         add_global_bet(),
         bet_global(),
+        add_global_score(),
     ]
 }
 

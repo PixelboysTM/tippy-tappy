@@ -16,6 +16,10 @@ pub struct Team {
     pub iso: String,
 }
 
+pub fn default_modifier() -> u32 {
+    1
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Game {
     pub name: String,
@@ -24,6 +28,8 @@ pub struct Game {
     pub team2_iso: String,
     pub start_time: chrono::NaiveDateTime,
     pub result: Option<(u16, u16, String)>,
+    #[serde(default = "default_modifier")]
+    pub modifier: u32,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

@@ -106,6 +106,7 @@ async fn add_game(
     #[description = "Team 1"] team1: String,
     #[description = "Team 2"] team2: String,
     #[description = "Anpfiff"] start_time: String,
+    #[description = "Modifier"] modifier: Option<u32>,
 ) -> Result<(), Error> {
     ctx.defer_ephemeral().await?;
     let mut d = ctx.data().lock().await;
@@ -127,6 +128,7 @@ async fn add_game(
         team2_iso: team2,
         result: None,
         start_time: t,
+        modifier: modifier.unwrap_or(crate::data::default_modifier())
     });
 
     ctx.reply("Succesful").await.unwrap();
@@ -477,7 +479,7 @@ async fn print_overview(
             };
 
             let ps = user_bets_points.entry(bet.user).or_insert(0u32);
-            *ps += points;
+            *ps += points * g.modifier;
         }
     }
 
@@ -569,7 +571,8 @@ async fn print_overview(
     games_table.column(2).set_header("vs");
     games_table.column(3).set_header("Kontrahent 2");
     games_table.column(4).set_header("Anpfiff");
-    games_table.column(5).set_header("Ergebnis");
+    games_table.column(5).set_header("M");
+    games_table.column(6).set_header("Ergebnis");
 
     let mut games = d.games.iter().cloned().collect::<Vec<_>>();
 
@@ -589,6 +592,7 @@ async fn print_overview(
             "vs".to_string(),
             t2.name.clone(),
             game.start_time.format("%d.%m.%Y %H:%M Uhr").to_string(),
+            game.modifier.to_string(),
             r,
         ]);
     }
@@ -631,7 +635,7 @@ async fn print_overview(
         .send_message(&ctx, CreateMessage::new().content(format!("# Tipps")))
         .await?;
 
-    for chunk in games.chunks(10) {
+    for chunk in games.chunks(12) {
         let mut tipps_table = AsciiTable::default();
         tipps_table.column(0).set_header("Spieler\\Game");
         for (i, g) in chunk.iter().enumerate() {

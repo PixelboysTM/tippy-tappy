@@ -128,7 +128,7 @@ async fn add_game(
         team2_iso: team2,
         result: None,
         start_time: t,
-        modifier: modifier.unwrap_or(crate::data::default_modifier())
+        modifier: modifier.unwrap_or(crate::data::default_modifier()),
     });
 
     ctx.reply("Succesful").await.unwrap();
@@ -591,7 +591,7 @@ async fn print_overview(
             t1.name.clone(),
             "vs".to_string(),
             t2.name.clone(),
-            game.start_time.format("%d.%m.%Y %H:%M Uhr").to_string(),
+            game.start_time.format("%d.%m %H Uhr").to_string(),
             game.modifier.to_string(),
             r,
         ]);
@@ -635,7 +635,7 @@ async fn print_overview(
         .send_message(&ctx, CreateMessage::new().content(format!("# Tipps")))
         .await?;
 
-    for chunk in games.chunks(12) {
+    for chunk in games.chunks(10) {
         let mut tipps_table = AsciiTable::default();
         tipps_table.column(0).set_header("Spieler\\Game");
         for (i, g) in chunk.iter().enumerate() {
